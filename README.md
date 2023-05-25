@@ -1,1 +1,1 @@
-# spatial
+# Applied Spatial Analysis
