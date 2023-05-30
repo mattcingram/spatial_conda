@@ -8,4 +8,21 @@ dependencies:
   - r-spatialreg
   - r-terra
   - r-ggmap
+  - r-tmap
+  - r-shp2graph
+  - r-igraph
+  - r-network
   - r-tidyverse
+  - r-foreign
+  - r-haven
+  - r-xtable
+  - r-stargazer
+  - r-ggplot2
+  - r-broom
+  - r-tictoc
+  - r-plyr
+  - r-dplyr
+  - r-CARBayes
+  - r-miceadds
+  - r-sandwich
+  - r-GWmodel
