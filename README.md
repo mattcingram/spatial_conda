@@ -1,5 +1,7 @@
 # Applied Spatial Analysis
 
-Click on image below to open binder online:
+Click on one of the images below to open binder online:
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/mattcingram/spatial/HEAD)
+Jupyter + R:  [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/mattcingram/spatial/HEAD)
+
+Jupyter + RStudio:  [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/mattcingram/spatial/HEAD?urlpath=rstudio)
