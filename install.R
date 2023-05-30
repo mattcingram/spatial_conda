@@ -1,1 +1,1 @@
-install.packages(c("pacman"))
+install.packages("pacman")
