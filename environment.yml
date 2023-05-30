@@ -2,4 +2,10 @@ channels:
   - conda-forge
 dependencies:
   - r-base=4.2
+  - r-sf
+  - r-spdep
+  - r-rgdal
+  - r-spatialreg
+  - r-terra
+  - r-ggmap
   - r-tidyverse
