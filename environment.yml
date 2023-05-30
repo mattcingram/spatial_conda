@@ -22,7 +22,5 @@ dependencies:
   - r-tictoc
   - r-plyr
   - r-dplyr
-  - r-CARBayes
   - r-miceadds
   - r-sandwich
-  - r-GWmodel
