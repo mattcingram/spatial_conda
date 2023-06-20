@@ -3,8 +3,9 @@
 # Ingram, Matt 
 # Reproduction of Brass et al. (2020) in Political Geography
 # created: 2023-04-23
-# last updated: 2023-06-15
-# steps here: explanatory analysis
+# last updated: 2023-06-20
+# steps here: explanatory analysis; spatial models (SLM, SEM, SLX, SAC, SDM, 
+#               and GWR)
 #
 ################################################################################
 
@@ -16,29 +17,64 @@ load("./data/working/working20230615.RData")
 # EXPLANATORY ANALYSIS
 ###############################################################
 
-################# SLDV models (Table 2) #######################
-### Model local, spill-over, and total effects of change in IV
-# local effects are the "Direct" effects
-# spill-over is the "Indirect"
-# Total is the sum of the "Direct" and "Indirect" effects
-#############
-# Interpret the Direct Effects like OLS coefficients.
+#######################################
+# BASELINE OLS MODEL (not reported in article)
 
+# reverse turnover to make more intuitive
 shp$turninv<- (1-shp$p_turn)
 
-#For the robustness check with newer electric grid data
-#shp.merged$turninv<- (1-shp.merged$p_turn)
-
-#Model 1
-ols1 <- lm.cluster(Count_~ pov_p_2008 + gini_2008
+# base ols
+ols <- lm(Count_~ pov_p_2008 + gini_2008
                    + ferat_2008 + p_share
                    + p_shvol + turninv
                    + p_tuvol + p_ethfr
                    + Count_3 + Density_RD
                    + Pop_Densit + Count_4
                    + literacy + grid_perCa,
-                   data=shp@data,cluster = "REGION")
+                   data=shp@data)
+summary(ols)
+
+# heteroskedasticity
+bptest(ols)
+
+# graph test
+plot(ols$fitted.values, ols$residuals)
+# Lieberman-style graph of yhat vs y
+plot(ols$fitted.values, ols$model$Count_)
+
+
+
+#######################################
+# BASELINE OLS MODEL WITH CLUSTERED SEs (Model 1 in article)
+
+#Model 1
+# could also use estimatr::lm_robust() (with option ... clusters = REGION)
+
+ols1a <- lm.cluster(Count_~ pov_p_2008 + gini_2008
+                   + ferat_2008 + p_share
+                   + p_shvol + turninv
+                   + p_tuvol + p_ethfr
+                   + Count_3 + Density_RD
+                   + Pop_Densit + Count_4
+                   + literacy + grid_perCa,
+                   data=shp@data, cluster = "REGION")
+
+ols1b <- lm_robust(Count_~ pov_p_2008 + gini_2008
+                   + ferat_2008 + p_share
+                   + p_shvol + turninv
+                   + p_tuvol + p_ethfr
+                   + Count_3 + Density_RD
+                   + Pop_Densit + Count_4
+                   + literacy + grid_perCa,
+                   data=shp@data, clusters = REGION)
+
 summary(ols1)   # stargazer does not recognize object created by lm.cluster
+
+dwplot(list(ols, ols1a$lm_res, 
+            ols1b), ci=.95)
+
+#######################################
+# BASELINE OLS WITH CLUSTERED SEs and INTERACTION (Model 2 in article)
 
 #Model 2
 ols2 <- lm.cluster(Count_~ pov_p_2008 + gini_2008
@@ -49,47 +85,192 @@ ols2 <- lm.cluster(Count_~ pov_p_2008 + gini_2008
                    + Count_3 + Density_RD
                    + Pop_Densit + Count_4
                    + literacy + grid_perCa,
-                   data=shp,cluster = "REGION")
+                   data=shp, cluster = "REGION"
+           )
 
 summary(ols2)
 
-#Model 3
-dist2008.sldv.3<- lagsarlm(Count_~ pov_p_2008 + gini_2008
+
+
+#######################################
+# SPATIAL MODELING
+#######################################
+
+# Notes:
+# 3 main approaches:
+### (1) run diagnostics, then select model
+### (2) run most complex model, then evaluate and select model
+### (3) build model based only on theory
+
+# in practice: 
+# if have good theory: let theory guide model specification, check with diagnostics,
+# and, in any case, run more than one model to 
+# check stability/robustness of results
+# if don't have good theory or working in new area: could follow options 1 or 2 in more
+# exploratory approach
+
+# here, assume have well-developed theory, and focus on diagnostics (option 1 above)
+
+###########################
+# DIAGNOSTICS
+
+# classic test: Lagrange Multiplier test (LM test)
+lmtests <- lm.LMtests(ols, listw=wq1, 
+                      test=c("LMerr","RLMerr","LMlag","RLMlag","SARMA"))
+summary(lmtests)
+
+# output: note that does not quite match original appendix (table A2, p4)
+# no difference if use ols1a$lm_res
+#        statistic parameter  p.value   
+#LMerr     5.3531         1 0.020686 * 
+#RLMerr    1.4432         1 0.229622   
+#LMlag     9.0335         1 0.002651 **
+#RLMlag    5.1236         1 0.023602 * 
+#SARMA    10.4767         2 0.005309 **
+#  ---
+#  Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+# comments:
+# LMerr and LMlag both sig, so move to robust tests;
+# only LMlag sig; also, mixed SARMA test sig
+# this matches discussion in appendix, pp 3-4
+# thus: SLM is most appropriate, but could still model SEM or SAC/SARMA to check
+
+
+
+# SLM: Model 3 in article
+
+slm <- lagsarlm(Count_~ pov_p_2008 + gini_2008      # formula
                            + ferat_2008 + p_share
                            + p_shvol + turninv
                            + p_tuvol + p_ethfr
                            + Count_3 + Density_RD
                            + Pop_Densit + Count_4
                            + literacy + grid_perCa,
-                           data=shp, listw=shp.w)
-summary(dist2008.sldv.3)
-#Robustness check with newer grid data
-#ghana.dist2008.sldv.altgrid<- lagsarlm(Count_~ pov_p_2008 + gini_2008
-#                                       + ferat_2008 + p_share
-#                                       + p_shvol + turninv
-#                                       + p_tuvol + p_ethfr
-#                                       + Count_3 + Density_RD
-#                                       + Pop_Densit + Count_4
-#                                       + literacy + gpc,
-#                                       data=dist2008.newer, ghana.dist2008.weights)
+                data=shp,      # data
+                listw=wq1)   # W
+summary(slm)
 
 
-dist2008.impacts.3<- impacts(dist2008.sldv.3, 
-                             listw=shp.w,
-                             R=1000,zstats=TRUE#,useHESS = T  # Hessian matrix not available
-)
+# SEM 
+sem <- errorsarlm(Count_~ pov_p_2008 + gini_2008
+                + ferat_2008 + p_share
+                + p_shvol + turninv
+                + p_tuvol + p_ethfr
+                + Count_3 + Density_RD
+                + Pop_Densit + Count_4
+                + literacy + grid_perCa,
+                data=shp, 
+                listw=wq1)
+summary(sem)
 
-#dist2008.impacts.altgrid<- impacts(ghana.dist2008.sldv.altgrid, 
-#                                   listw=ghana.dist2008.weights,
-#                                   R=1000,zstats=TRUE,useHESS = T)
+# SAC/SARMA
+sac <- sacsarlm(Count_~ pov_p_2008 + gini_2008
+                + ferat_2008 + p_share
+                + p_shvol + turninv
+                + p_tuvol + p_ethfr
+                + Count_3 + Density_RD
+                + Pop_Densit + Count_4
+                + literacy + grid_perCa,
+                data=shp, 
+                listw=wq1,    # W for Wy process (SLM) 
+                listw2=wr1    # W for We process (SEM)
+                )
+summary(sac)
+# note rho sig, lambda not sig
 
-summary(dist2008.impacts.3, zstats=TRUE)
-#summary(dist2008.impacts.altgrid, zstats=TRUE)
+# SDM
+sdm <- lagsarlm(Count_~ pov_p_2008 + gini_2008
+                + ferat_2008 + p_share
+                + p_shvol + turninv
+                + p_tuvol + p_ethfr
+                + Count_3 + Density_RD
+                + Pop_Densit + Count_4
+                + literacy + grid_perCa,
+                data=shp, 
+                listw=wq1,
+                Durbin = TRUE)
+summary(sdm)
 
+# SLX
+slx <- lmSLX(Count_~ pov_p_2008 + gini_2008
+                + ferat_2008 + p_share
+                + p_shvol + turninv
+                + p_tuvol + p_ethfr
+                + Count_3 + Density_RD
+                + Pop_Densit + Count_4
+                + literacy + grid_perCa,
+                data=shp, listw=wq1,
+                Durbin = TRUE)
+summary(slx)
+
+# aside from LM tests, could now do post-estimation comparison
+moran.test(slm$residuals, listw=wq1)
+moran.test(sem$residuals, listw=wq1)
+moran.test(sac$residuals, listw=wq1)
+moran.test(sdm$residuals, listw=wq1)
+moran.test(slx$residuals, listw=wq1)
+
+AIC(slm)
+AIC(sem)
+AIC(sac)
+AIC(sdm)
+AIC(slx)
+
+# overall, SLM looks reasonable
 
 ###############################################
+# INTERPRETATION
+
+# for SLM, SAC, SDM, and SLX, need to estimate impacts
+# for SEM, can interpret as OLS coefficients
+
+# note: original article found turnout volatility, female ratio, and road density
+# significant
+
+impacts.slm<- impacts(slm, 
+                      listw=shp.w,
+                      R=1000,zstats=TRUE
+                      #,useHESS = T  # Hessian matrix not available
+)
+summary(impacts.slm, zstats=TRUE)
+
+summary(sem)
+
+impacts.sac<- impacts(sac, 
+                      listw=shp.w,
+                      R=1000,zstats=TRUE
+                      #,useHESS = T  # Hessian matrix not available
+)
+summary(impacts.sac, zstats=TRUE)
+
+impacts.sdm<- impacts(sdm, 
+                      listw=shp.w,
+                      R=1000,zstats=TRUE
+                      #,useHESS = T  # Hessian matrix not available
+)
+summary(impacts.sdm, zstats=TRUE)
+
+impacts.slx<- impacts(slx, 
+                      listw=shp.w,
+                      R=1000,zstats=TRUE
+                      #,useHESS = T  # Hessian matrix not available
+)
+summary(impacts.slx, zstats=TRUE)
+
+# slm consistent with article
+# other models show stability of these core results, with some variation
+# SAC: pop density also sig
+# SDM and SLX" turnout volatility no longer sig, even at .10 level, 
+# and literacy now significant at either .05 (SDM) or .10 (SLX) level
+
+###############################################
+# GWR
+###############################################
+
 # GWR of model 3 above
 
+# create distance matrix
 tic("dm")
 dMat <- gw.dist(dp.locat=coordinates(shp))
 toc()
@@ -102,6 +283,7 @@ model <- formula(Count_~ pov_p_2008 + gini_2008
                  + Pop_Densit + Count_4
                  + literacy + grid_perCa)
 
+# find optimal bandwidth
 bw.bsq <- bw.gwr(model,
                  data=shp, 
                  approach="CV",
@@ -109,7 +291,46 @@ bw.bsq <- bw.gwr(model,
                  adaptive=TRUE,
                  dMat=dMat)
 
+# check for heterogeneity
+# randomization test to identify which covariates have sig non-stationarity
+tic("mc")
+mc1 <- montecarlo.gwr(model, 
+                      data=shp, 
+                      nsims = 999,
+                      bw = bw.bsq,
+                      kernel="bisquare",
+                      adaptive=TRUE, 
+                      dMat = dMat)
+toc()
+# 36 sec
 
+mc1
+# shows female ratio and grid_percap are nonstationary/heterogeneous
+
+# check with different bandwidth
+bw.g <- bw.gwr(model,
+               data=shp, 
+               approach="CV",
+               kernel="gaussian",
+               adaptive=TRUE,
+               dMat=dMat)
+
+tic("mc")
+mc2 <- montecarlo.gwr(model, 
+                      data=shp, 
+                      nsims = 999,
+                      bw = bw.g,
+                      kernel="bisquare",
+                      adaptive=TRUE, 
+                      dMat = dMat)
+toc()
+# also about 36 sec
+
+mc2
+# again shows fem ratio and grid_perca significant
+
+###############################################
+# run gwr models with two different bandwidths
 tic("gwr1")
 gwr1 <- gwr.basic(model, 
                   data=shp, 
@@ -151,7 +372,8 @@ write.csv(gwr2$SDF, "./tables/gwr2.csv")
 ###############################################
 
 # note: authors only focus on road density and turnout volatility
-# we do all to check
+# we do a few more, including main hypotheses and ones 
+# identified in montecarlo test
 
 #############################################
 
@@ -164,6 +386,9 @@ gwr1$SDF$p_shvol95[abs(gwr1$SDF$p_shvol_TV)<=1.96] <- 0
 
 gwr1$SDF$p_tuvol95 <- gwr1$SDF$p_tuvol
 gwr1$SDF$p_tuvol95[abs(gwr1$SDF$p_tuvol_TV)<=1.96] <- 0
+
+gwr1$SDF$ferat95 <- gwr1$SDF$ferat_2008
+gwr1$SDF$ferat95[abs(gwr1$SDF$ferat_2008_TV)<=1.96] <- 0
 
 gwr1$SDF$Density_RD95 <- gwr1$SDF$Density_RD
 gwr1$SDF$Density_RD95[abs(gwr1$SDF$Density_RD_TV)<=1.96] <- 0
@@ -181,6 +406,9 @@ gwr2$SDF$p_shvol95[abs(gwr2$SDF$p_shvol_TV)<=1.96] <- 0
 gwr2$SDF$p_tuvol95 <- gwr2$SDF$p_tuvol
 gwr2$SDF$p_tuvol95[abs(gwr2$SDF$p_tuvol_TV)<=1.96] <- 0
 
+gwr2$SDF$ferat95 <- gwr2$SDF$ferat_2008
+gwr2$SDF$ferat95[abs(gwr2$SDF$ferat_2008_TV)<=1.96] <- 0
+
 gwr2$SDF$Density_RD95 <- gwr2$SDF$Density_RD
 gwr2$SDF$Density_RD95[abs(gwr2$SDF$Density_RD_TV)<=1.96] <- 0
 
@@ -193,24 +421,32 @@ gwr2$SDF$grid_perCa95[abs(gwr2$SDF$grid_perCa_TV)<=1.96] <- 0
 
 # add estimates from new models
 
-shpplot <- shp
 # gwr1
-shpplot$p_share.gwr1 <- gwr1$SDF$p_share95
-shpplot$p_shvol.gwr1 <- gwr1$SDF$p_shvol95
-shpplot$p_tuvol.gwr1 <- gwr1$SDF$p_tuvol95
-shpplot$road.gwr1 <- gwr1$SDF$Density_RD95
-shpplot$gpc.gwr1 <- gwr1$SDF$grid_perCa95
+shp$p_share.gwr1 <- gwr1$SDF$p_share95
+shp$p_shvol.gwr1 <- gwr1$SDF$p_shvol95
+shp$p_tuvol.gwr1 <- gwr1$SDF$p_tuvol95
+shp$ferat.gwr1 <- gwr1$SDF$ferat95
+shp$road.gwr1 <- gwr1$SDF$Density_RD95
+shp$gpc.gwr1 <- gwr1$SDF$grid_perCa95
 
 # gwr2
-shpplot$p_share.gwr2 <- gwr2$SDF$p_share95
-shpplot$p_shvol.gwr2 <- gwr2$SDF$p_shvol95
-shpplot$p_tuvol.gwr2 <- gwr2$SDF$p_tuvol95
-shpplot$road.gwr2 <- gwr2$SDF$Density_RD95
-shpplot$gpc.gwr2 <- gwr2$SDF$grid_perCa95
+shp$p_share.gwr2 <- gwr2$SDF$p_share95
+shp$p_shvol.gwr2 <- gwr2$SDF$p_shvol95
+shp$p_tuvol.gwr2 <- gwr2$SDF$p_tuvol95
+shp$ferat.gwr2 <- gwr2$SDF$ferat95
+shp$road.gwr2 <- gwr2$SDF$Density_RD95
+shp$gpc.gwr2 <- gwr2$SDF$grid_perCa95
+
+# check collinearity of gwr coefficients
+col1 <- gwr.collin.diagno(model, data=shp, adaptive = TRUE, 
+                          kernel="bisquare", bw=bw.bsq, dMat=dMat)
+summary(col1$VIF)
+#highest is only around 6 (Count_4, health facilities)
+
 
 #########################################################
 # save data
-save.image("./data/working/working20230417.RData")
+save.image("./data/working/working20230616.RData")
 #########################################################
 
 
@@ -220,30 +456,15 @@ save.image("./data/working/working20230417.RData")
 #
 ########################################################
 
-#################################################
-# restructure data for ggplot
-
-shpplot@data$id = rownames(shpplot@data)
-# tidy requires package 'broom' from tidyverse
-shpplot.points <- tidy(shpplot, region="id")
-
-shpplot.df = join(shpplot.points, shpplot@data, by="id")  # join is from package plyr
-
-#####################################################
-
+# convert to sf object for graphing
+shp.sf <- st_as_sf(shp)
 
 # GWR1:
 
+# vote share volatility
 
-g <- ggplot(shpplot.df) + 
-  aes(long,lat,group=group,fill=p_shvol.gwr1) + 
-  geom_polygon(colour="transparent", fill="white")
-
-g <- g + 
-  geom_polygon(aes(x = long, y = lat, group = group), data = shpplot.df) +            
-  #             colour = 'white', fill = 'black', alpha = .4, size = .3) +
-  #scale_fill_distiller(name=NULL, palette = "Greys", trans="reverse", breaks = pretty_breaks(n = 5), na.value="white", guide="colourbar") + 
-  #scale_fill_manual(name="LISA cluster", values=c("white", "red", "blue","lightblue","pink"), breaks = c("0", "1", "2", "3", "4"), labels=c("n.s.", "high-high", "low-low","low-high","hgh-low"), guide="legend") + 
+g <- ggplot(data=shp.sf) + 
+  geom_sf(aes(fill=p_shvol.gwr1)) + 
   scale_fill_gradient2(name="\u03B2", 
                        #values=rescale(c(0, .05, .2)), 
                        low="blue",
@@ -252,16 +473,7 @@ g <- g +
                        midpoint=0,
                        guide="colourbar") + 
   labs(x="", y="", title="Vote Share volatility, local \u03B2 (GWR 1, bisquare)") +
-  theme(axis.ticks.y = element_blank(),axis.text.y = element_blank(), # get rid of x ticks/text
-        axis.ticks.x = element_blank(),axis.text.x = element_blank(), # get rid of y ticks/text
-        axis.line.x = element_blank(), axis.line.y = element_blank(),
-        plot.title = element_text(lineheight=.8, face="bold", vjust=1), # make title bold and add space
-        panel.grid.major = element_blank(), panel.grid.minor = element_blank(), # removes background grid
-        panel.background = element_blank(), # removes grey background; could add black axis lines with #axis.line = element_line(colour = "black")) 
-        panel.spacing=unit(c(0,0,0,0), "lines"),
-        plot.margin=unit(c(0,0,0,0), "mm")) + # sets margin around full plot at top, right, bottom, and left; units can also be "lines" or "cm"
-  coord_equal(ratio=1) +
-  geom_polygon(data=shp, aes(long,lat, group=group), colour="grey50", fill=NA) 
+  theme_minimal()
 g
 
 png(file="./figures/gwr1_voteshare_volatility.png", height=6, width=6, units="in", res=300)
@@ -270,15 +482,8 @@ dev.off()
 
 # turnout volatility
 
-g <- ggplot(shpplot.df) + 
-  aes(long,lat,group=group,fill=p_tuvol.gwr1) + 
-  geom_polygon(colour="transparent", fill="white")
-
-g <- g + 
-  geom_polygon(aes(x = long, y = lat, group = group), data = shpplot.df) +            
-  #             colour = 'white', fill = 'black', alpha = .4, size = .3) +
-  #scale_fill_distiller(name=NULL, palette = "Greys", trans="reverse", breaks = pretty_breaks(n = 5), na.value="white", guide="colourbar") + 
-  #scale_fill_manual(name="LISA cluster", values=c("white", "red", "blue","lightblue","pink"), breaks = c("0", "1", "2", "3", "4"), labels=c("n.s.", "high-high", "low-low","low-high","hgh-low"), guide="legend") + 
+g <- ggplot(data=shp.sf) + 
+  geom_sf(aes(fill=p_tuvol.gwr1)) + 
   scale_fill_gradient2(name="\u03B2", 
                        #values=rescale(c(0, .05, .2)), 
                        low="blue",
@@ -287,33 +492,37 @@ g <- g +
                        midpoint=0,
                        guide="colourbar") + 
   labs(x="", y="", title="Turnout volatility, local \u03B2 (GWR 1, bisquare)") +
-  theme(axis.ticks.y = element_blank(),axis.text.y = element_blank(), # get rid of x ticks/text
-        axis.ticks.x = element_blank(),axis.text.x = element_blank(), # get rid of y ticks/text
-        axis.line.x = element_blank(), axis.line.y = element_blank(),
-        plot.title = element_text(lineheight=.8, face="bold", vjust=1), # make title bold and add space
-        panel.grid.major = element_blank(), panel.grid.minor = element_blank(), # removes background grid
-        panel.background = element_blank(), # removes grey background; could add black axis lines with #axis.line = element_line(colour = "black")) 
-        panel.spacing=unit(c(0,0,0,0), "lines"),
-        plot.margin=unit(c(0,0,0,0), "mm")) + # sets margin around full plot at top, right, bottom, and left; units can also be "lines" or "cm"
-  coord_equal(ratio=1) +
-  geom_polygon(data=shp, aes(long,lat, group=group), colour="grey50", fill=NA) 
+  theme_minimal()
 g
 
 png(file="./figures/gwr1_turnout_volatility.png", height=6, width=6, units="in", res=300)
 print(g)
 dev.off()
 
+# female ratio
+
+g <- ggplot(data=shp.sf) + 
+  geom_sf(aes(fill=ferat.gwr1)) + 
+  scale_fill_gradient2(name="\u03B2", 
+                       #values=rescale(c(0, .05, .2)), 
+                       low="blue",
+                       mid="white",
+                       high="red",
+                       midpoint=0,
+                       guide="colourbar") + 
+  labs(x="", y="", title="Female Ratio, local \u03B2 (GWR 1, bisquare)") +
+  theme_minimal()
+g
+
+png(file="./figures/gwr1_femratio.png", height=6, width=6, units="in", res=300)
+print(g)
+dev.off()
+
+
 # road density
 
-g <- ggplot(shpplot.df) + 
-  aes(long,lat,group=group,fill=road.gwr1) + 
-  geom_polygon(colour="transparent", fill="white")
-
-g <- g + 
-  geom_polygon(aes(x = long, y = lat, group = group), data = shpplot.df) +            
-  #             colour = 'white', fill = 'black', alpha = .4, size = .3) +
-  #scale_fill_distiller(name=NULL, palette = "Greys", trans="reverse", breaks = pretty_breaks(n = 5), na.value="white", guide="colourbar") + 
-  #scale_fill_manual(name="LISA cluster", values=c("white", "red", "blue","lightblue","pink"), breaks = c("0", "1", "2", "3", "4"), labels=c("n.s.", "high-high", "low-low","low-high","hgh-low"), guide="legend") + 
+g <- ggplot(data=shp.sf) + 
+  geom_sf(aes(fill=road.gwr1)) + 
   scale_fill_gradient2(name="\u03B2", 
                        #values=rescale(c(0, .05, .2)), 
                        low="blue",
@@ -322,16 +531,9 @@ g <- g +
                        midpoint=0,
                        guide="colourbar") + 
   labs(x="", y="", title="Road density, local \u03B2 (GWR 1, bisquare)") +
-  theme(axis.ticks.y = element_blank(),axis.text.y = element_blank(), # get rid of x ticks/text
-        axis.ticks.x = element_blank(),axis.text.x = element_blank(), # get rid of y ticks/text
-        axis.line.x = element_blank(), axis.line.y = element_blank(),
-        plot.title = element_text(lineheight=.8, face="bold", vjust=1), # make title bold and add space
-        panel.grid.major = element_blank(), panel.grid.minor = element_blank(), # removes background grid
-        panel.background = element_blank(), # removes grey background; could add black axis lines with #axis.line = element_line(colour = "black")) 
-        panel.spacing=unit(c(0,0,0,0), "lines"),
-        plot.margin=unit(c(0,0,0,0), "mm")) + # sets margin around full plot at top, right, bottom, and left; units can also be "lines" or "cm"
-  coord_equal(ratio=1) +
-  geom_polygon(data=shp, aes(long,lat, group=group), colour="grey50", fill=NA) 
+  theme_minimal()
+g
+
 
 png(file="./figures/gwr1_road_density.png", height=6, width=6, units="in", res=300)
 print(g)
@@ -339,15 +541,8 @@ dev.off()
 
 # grid density per capita
 
-g <- ggplot(shpplot.df) + 
-  aes(long,lat,group=group,fill=gpc.gwr1) + 
-  geom_polygon(colour="transparent", fill="white")
-
-g <- g + 
-  geom_polygon(aes(x = long, y = lat, group = group), data = shpplot.df) +            
-  #             colour = 'white', fill = 'black', alpha = .4, size = .3) +
-  #scale_fill_distiller(name=NULL, palette = "Greys", trans="reverse", breaks = pretty_breaks(n = 5), na.value="white", guide="colourbar") + 
-  #scale_fill_manual(name="LISA cluster", values=c("white", "red", "blue","lightblue","pink"), breaks = c("0", "1", "2", "3", "4"), labels=c("n.s.", "high-high", "low-low","low-high","hgh-low"), guide="legend") + 
+g <- ggplot(data=shp.sf) + 
+  geom_sf(aes(fill=gpc.gwr1)) + 
   scale_fill_gradient2(name="\u03B2", 
                        #values=rescale(c(0, .05, .2)), 
                        low="blue",
@@ -356,16 +551,9 @@ g <- g +
                        midpoint=0,
                        guide="colourbar") + 
   labs(x="", y="", title="Grid density pc, local \u03B2 (GWR 1, bisquare)") +
-  theme(axis.ticks.y = element_blank(),axis.text.y = element_blank(), # get rid of x ticks/text
-        axis.ticks.x = element_blank(),axis.text.x = element_blank(), # get rid of y ticks/text
-        axis.line.x = element_blank(), axis.line.y = element_blank(),
-        plot.title = element_text(lineheight=.8, face="bold", vjust=1), # make title bold and add space
-        panel.grid.major = element_blank(), panel.grid.minor = element_blank(), # removes background grid
-        panel.background = element_blank(), # removes grey background; could add black axis lines with #axis.line = element_line(colour = "black")) 
-        panel.spacing=unit(c(0,0,0,0), "lines"),
-        plot.margin=unit(c(0,0,0,0), "mm")) + # sets margin around full plot at top, right, bottom, and left; units can also be "lines" or "cm"
-  coord_equal(ratio=1) +
-  geom_polygon(data=shp, aes(long,lat, group=group), colour="grey50", fill=NA) 
+  theme_minimal()
+g
+
 
 png(file="./figures/gwr1_gpc.png", height=6, width=6, units="in", res=300)
 print(g)
@@ -373,18 +561,12 @@ dev.off()
 
 #######################
 # GWR2
+#######################
 
 # vote share volatility
 
-g <- ggplot(shpplot.df) + 
-  aes(long,lat,group=group,fill=p_shvol.gwr2) + 
-  geom_polygon(colour="transparent", fill="white")
-
-g <- g + 
-  geom_polygon(aes(x = long, y = lat, group = group), data = shpplot.df) +            
-  #             colour = 'white', fill = 'black', alpha = .4, size = .3) +
-  #scale_fill_distiller(name=NULL, palette = "Greys", trans="reverse", breaks = pretty_breaks(n = 5), na.value="white", guide="colourbar") + 
-  #scale_fill_manual(name="LISA cluster", values=c("white", "red", "blue","lightblue","pink"), breaks = c("0", "1", "2", "3", "4"), labels=c("n.s.", "high-high", "low-low","low-high","hgh-low"), guide="legend") + 
+g <- ggplot(data=shp.sf) + 
+  geom_sf(aes(fill=p_shvol.gwr2)) + 
   scale_fill_gradient2(name="\u03B2", 
                        #values=rescale(c(0, .05, .2)), 
                        low="blue",
@@ -392,34 +574,18 @@ g <- g +
                        high="red",
                        midpoint=0,
                        guide="colourbar") + 
-  labs(x="", y="", title="Vote Share volatility, local \u03B2 (GWR 2, gaussian)") +
-  theme(axis.ticks.y = element_blank(),axis.text.y = element_blank(), # get rid of x ticks/text
-        axis.ticks.x = element_blank(),axis.text.x = element_blank(), # get rid of y ticks/text
-        axis.line.x = element_blank(), axis.line.y = element_blank(),
-        plot.title = element_text(lineheight=.8, face="bold", vjust=1), # make title bold and add space
-        panel.grid.major = element_blank(), panel.grid.minor = element_blank(), # removes background grid
-        panel.background = element_blank(), # removes grey background; could add black axis lines with #axis.line = element_line(colour = "black")) 
-        panel.spacing=unit(c(0,0,0,0), "lines"),
-        plot.margin=unit(c(0,0,0,0), "mm")) + # sets margin around full plot at top, right, bottom, and left; units can also be "lines" or "cm"
-  coord_equal(ratio=1) +
-  geom_polygon(data=shp, aes(long,lat, group=group), colour="grey50", fill=NA) 
+  labs(x="", y="", title="Vote Share volatility, local \u03B2 (GWR 2, bisquare)") +
+  theme_minimal()
+g
 
 png(file="./figures/gwr2_voteshare_volatility.png", height=6, width=6, units="in", res=300)
 print(g)
 dev.off()
 
-
 # turnout volatility
 
-g <- ggplot(shpplot.df) + 
-  aes(long,lat,group=group,fill=p_tuvol.gwr2) + 
-  geom_polygon(colour="transparent", fill="white")
-
-g <- g + 
-  geom_polygon(aes(x = long, y = lat, group = group), data = shpplot.df) +            
-  #             colour = 'white', fill = 'black', alpha = .4, size = .3) +
-  #scale_fill_distiller(name=NULL, palette = "Greys", trans="reverse", breaks = pretty_breaks(n = 5), na.value="white", guide="colourbar") + 
-  #scale_fill_manual(name="LISA cluster", values=c("white", "red", "blue","lightblue","pink"), breaks = c("0", "1", "2", "3", "4"), labels=c("n.s.", "high-high", "low-low","low-high","hgh-low"), guide="legend") + 
+g <- ggplot(data=shp.sf) + 
+  geom_sf(aes(fill=p_tuvol.gwr2)) + 
   scale_fill_gradient2(name="\u03B2", 
                        #values=rescale(c(0, .05, .2)), 
                        low="blue",
@@ -427,33 +593,18 @@ g <- g +
                        high="red",
                        midpoint=0,
                        guide="colourbar") + 
-  labs(x="", y="", title="Turnout volatility, local \u03B2 (GWR 2, gaussian)") +
-  theme(axis.ticks.y = element_blank(),axis.text.y = element_blank(), # get rid of x ticks/text
-        axis.ticks.x = element_blank(),axis.text.x = element_blank(), # get rid of y ticks/text
-        axis.line.x = element_blank(), axis.line.y = element_blank(),
-        plot.title = element_text(lineheight=.8, face="bold", vjust=1), # make title bold and add space
-        panel.grid.major = element_blank(), panel.grid.minor = element_blank(), # removes background grid
-        panel.background = element_blank(), # removes grey background; could add black axis lines with #axis.line = element_line(colour = "black")) 
-        panel.spacing=unit(c(0,0,0,0), "lines"),
-        plot.margin=unit(c(0,0,0,0), "mm")) + # sets margin around full plot at top, right, bottom, and left; units can also be "lines" or "cm"
-  coord_equal(ratio=1) +
-  geom_polygon(data=shp, aes(long,lat, group=group), colour="grey50", fill=NA) 
+  labs(x="", y="", title="Turnout volatility, local \u03B2 (GWR 2, bisquare)") +
+  theme_minimal()
+g
 
 png(file="./figures/gwr2_turnout_volatility.png", height=6, width=6, units="in", res=300)
 print(g)
 dev.off()
 
-# road density
+# female ratio
 
-g <- ggplot(shpplot.df) + 
-  aes(long,lat,group=group,fill=road.gwr2) + 
-  geom_polygon(colour="transparent", fill="white")
-
-g <- g + 
-  geom_polygon(aes(x = long, y = lat, group = group), data = shpplot.df) +            
-  #             colour = 'white', fill = 'black', alpha = .4, size = .3) +
-  #scale_fill_distiller(name=NULL, palette = "Greys", trans="reverse", breaks = pretty_breaks(n = 5), na.value="white", guide="colourbar") + 
-  #scale_fill_manual(name="LISA cluster", values=c("white", "red", "blue","lightblue","pink"), breaks = c("0", "1", "2", "3", "4"), labels=c("n.s.", "high-high", "low-low","low-high","hgh-low"), guide="legend") + 
+g <- ggplot(data=shp.sf) + 
+  geom_sf(aes(fill=ferat.gwr2)) + 
   scale_fill_gradient2(name="\u03B2", 
                        #values=rescale(c(0, .05, .2)), 
                        low="blue",
@@ -461,17 +612,30 @@ g <- g +
                        high="red",
                        midpoint=0,
                        guide="colourbar") + 
-  labs(x="", y="", title="Road density, local \u03B2 (GWR 2, gaussian)") +
-  theme(axis.ticks.y = element_blank(),axis.text.y = element_blank(), # get rid of x ticks/text
-        axis.ticks.x = element_blank(),axis.text.x = element_blank(), # get rid of y ticks/text
-        axis.line.x = element_blank(), axis.line.y = element_blank(),
-        plot.title = element_text(lineheight=.8, face="bold", vjust=1), # make title bold and add space
-        panel.grid.major = element_blank(), panel.grid.minor = element_blank(), # removes background grid
-        panel.background = element_blank(), # removes grey background; could add black axis lines with #axis.line = element_line(colour = "black")) 
-        panel.spacing=unit(c(0,0,0,0), "lines"),
-        plot.margin=unit(c(0,0,0,0), "mm")) + # sets margin around full plot at top, right, bottom, and left; units can also be "lines" or "cm"
-  coord_equal(ratio=1) +
-  geom_polygon(data=shp, aes(long,lat, group=group), colour="grey50", fill=NA) 
+  labs(x="", y="", title="Female Ratio, local \u03B2 (GWR 2, bisquare)") +
+  theme_minimal()
+g
+
+png(file="./figures/gwr2_femratio.png", height=6, width=6, units="in", res=300)
+print(g)
+dev.off()
+
+
+# road density
+
+g <- ggplot(data=shp.sf) + 
+  geom_sf(aes(fill=road.gwr2)) + 
+  scale_fill_gradient2(name="\u03B2", 
+                       #values=rescale(c(0, .05, .2)), 
+                       low="blue",
+                       mid="white",
+                       high="red",
+                       midpoint=0,
+                       guide="colourbar") + 
+  labs(x="", y="", title="Road density, local \u03B2 (GWR 2, bisquare)") +
+  theme_minimal()
+g
+
 
 png(file="./figures/gwr2_road_density.png", height=6, width=6, units="in", res=300)
 print(g)
@@ -479,15 +643,8 @@ dev.off()
 
 # grid density per capita
 
-g <- ggplot(shpplot.df) + 
-  aes(long,lat,group=group,fill=gpc.gwr2) + 
-  geom_polygon(colour="transparent", fill="white")
-
-g <- g + 
-  geom_polygon(aes(x = long, y = lat, group = group), data = shpplot.df) +            
-  #             colour = 'white', fill = 'black', alpha = .4, size = .3) +
-  #scale_fill_distiller(name=NULL, palette = "Greys", trans="reverse", breaks = pretty_breaks(n = 5), na.value="white", guide="colourbar") + 
-  #scale_fill_manual(name="LISA cluster", values=c("white", "red", "blue","lightblue","pink"), breaks = c("0", "1", "2", "3", "4"), labels=c("n.s.", "high-high", "low-low","low-high","hgh-low"), guide="legend") + 
+g <- ggplot(data=shp.sf) + 
+  geom_sf(aes(fill=gpc.gwr2)) + 
   scale_fill_gradient2(name="\u03B2", 
                        #values=rescale(c(0, .05, .2)), 
                        low="blue",
@@ -495,25 +652,19 @@ g <- g +
                        high="red",
                        midpoint=0,
                        guide="colourbar") + 
-  labs(x="", y="", title="Grid density pc, local \u03B2 (GWR 2, gaussian)") +
-  theme(axis.ticks.y = element_blank(),axis.text.y = element_blank(), # get rid of x ticks/text
-        axis.ticks.x = element_blank(),axis.text.x = element_blank(), # get rid of y ticks/text
-        axis.line.x = element_blank(), axis.line.y = element_blank(),
-        plot.title = element_text(lineheight=.8, face="bold", vjust=1), # make title bold and add space
-        panel.grid.major = element_blank(), panel.grid.minor = element_blank(), # removes background grid
-        panel.background = element_blank(), # removes grey background; could add black axis lines with #axis.line = element_line(colour = "black")) 
-        panel.spacing=unit(c(0,0,0,0), "lines"),
-        plot.margin=unit(c(0,0,0,0), "mm")) + # sets margin around full plot at top, right, bottom, and left; units can also be "lines" or "cm"
-  coord_equal(ratio=1) +
-  geom_polygon(data=shp, aes(long,lat, group=group), colour="grey50", fill=NA) 
+  labs(x="", y="", title="Grid density pc, local \u03B2 (GWR 2, bisquare)") +
+  theme_minimal()
+g
+
 
 png(file="./figures/gwr2_gpc.png", height=6, width=6, units="in", res=300)
 print(g)
 dev.off()
 
+
 ####################################
 # save working data
 
-save.image("./data/working/working20230615.RData")
+save.image("./data/working/working20230620.RData")
 
 #end
