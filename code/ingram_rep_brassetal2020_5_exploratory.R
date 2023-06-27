@@ -3,20 +3,33 @@
 # Ingram, Matt 
 # Reproduction of Brass et al. (2020) in Political Geography
 # created: 2023-04-23
-# last updated: 2023-06-15
+# last updated: 2023-06-26
 # steps here: exploratory analysis; global moran, local c, and LISA
 #
 ################################################################################
 
 ##########################################################
 # if returning to project, load last working data file:
-load("./data/working/working20230606.RData")
+load("./data/working/working20230626_W.RData")
 
 
 #############################################
 # Exploratory Analysis
 #############################################
 
+# Two approaches covered here: global and local
+# global can help detect general spatial clustering; 
+# this can be informative for descriptive and exploratory purposes, and can
+# also help motivate modeling strategies different from standard OLS
+
+# however, in practice, likely want to move quickly to local statistics
+# these are much more informative in terms of detecting local
+# patterns of association
+# keep in mind that these local patterns could be product of either
+# (a) spatial dependence or (b) heterogeneity (uneven effects of X on Y)
+
+
+###########################################
 # Global Moran'S I 
 
 # global moran of outcome
@@ -57,7 +70,7 @@ str(globalIs)
 knitr::kable(globalIs, format="simple", digits=10)
 # only shows digist as far as 10, even for sci notation
 
-# output to file
+# can output to file
 xtable(globalIs)
 
 print(xtable(globalIs), 
@@ -72,24 +85,73 @@ print(xtable(globalIs),
 #
 # Local Indicators of Spatial Association (LISAs)
 # Local Moran, Local G, and Local C
-# note: for Local Moran, cover two estimation strategies: permutation and saddlepoint
-# other estimation strategies available, but permutation is more intuitive and 
+
+# Summary:
+
+# Local Moran
+
+# returns value that can be positive or negative
+# positive value indicate similarity cluster
+# negative value indicates dissimilarity cluster
+# Also: these values can be classified into 5 categories:
+# similar values clusters: high-high and low-low
+# dissimilar values clusters: low-high and high-low
+# or not significant
+
+# localG (getis-ord); returns Z-value that identifies similarity clusters 
+# high G (positive) = high-value similarity cluster
+# low G (negative) = low-value similarity cluster
+# note: does not capture dissimilarity clusters or spatial "outliers"
+# note2: two types: G and G*; G excludes focal unit in calculating 
+# neighborhood average; G* includes focal unit
+
+# localC (Geary's C); 
+# can capture similarity and dissimilarity
+# based on squared differences, so large values 
+# (large, squared differences), capture dissimilarity
+# mean=1 if spatially random; values < 1 are similar-values clusters
+# small values = similarity clusters (low and high, 
+#     based on matching observations on a moran scatter plot) 
+# large values (>1) = dissimilarity clusters
+# however, squared differences may also 
+# match observations close to mean (around 1), so
+# these are "other positive" associations
+
+# in practice, can do more than 1 to check stability of results
+# Local Moran and Geary C two most informative options
+# because they identify both similarity and dissimilarity clusters
+
+##########################################################
+
+# y = solar panels per district ("Count_")
+
+nb <- nb.q1
+w <- nb2listw(nb, style="W", zero.policy=T)  # row-standardized
+
+#########################
+
+
+###############################################
+#
+# Local Moran
+#
+# note: for Local Moran, cover two estimation strategies: 
+# permutation and saddlepoint
+# other estimation strategies available, but permutation is more intuitive 
 # and saddlepoint is more conservative
 # Tiefelsdorf (2002, 204) calls saddlepoint "approximation method of first choice"
 # Bivand and Wong (2018) also favor saddlepoint, and note that permutation 
 # approach is less conservative (i.e., more likely to generate large Z-values, or
 # false positive, i.e., "false discovery" of local clusters)
-##########################################################
 
-# y = solar panels per district ("Count_)
+#################################################
 
-nb <- nb.q1
-w <- nb2listw(nb)
-
-#########################
 # permutation approach
-lisa_perm <- localmoran_perm(shp.sf$Count_, listw=w, nsim=5000)
+lisa_perm <- localmoran_perm(shp.sf$Count_, listw=w, nsim=9999)
 summary(lisa_perm)
+
+# question: what is this doing?
+# permutation = shuffling
 
 # create LISA cluster identifiers
 DV <- shp$Count_
@@ -183,10 +245,39 @@ png(file="./figures/lisamap_yavg_perm_color.png", height=6, width=6, units="in",
 print(g)
 dev.off()
 
+###
+# if wanted to, could add satellite background
+# review methods from command file on mapping
+
+load("./data/original/region4.RData")
+
+g <- ggmap(region4) +
+  geom_sf(data=shp.sf, aes(fill=lisa_perm.cl.dv), inherit.aes = FALSE) +
+  scale_fill_manual(name="cluster", 
+                    values=c("white", "red", "blue","lightblue","pink"), 
+                    breaks = c("0", "1", "2", "3", "4"), 
+                    labels=c("n.s.", "high-high", "low-low","low-high","hgh-low"), guide="legend") + 
+  labs(x="", y="", title="Local Moran Clusters, Solar Panels (permutation)") +
+  geom_sf(data=lakes.sf[4,], fill="black", inherit.aes = FALSE) +
+  #coord_sf(crs=4269) +     # applies to all layers
+  #xlim(-3.5, 1.5) +
+  #ylim(4.5, 11.5) +
+  theme_minimal()
+g
+
+# remove large object
+rm(region4)
 
 ##################################
 # saddlepoint approach
 ##################################
+
+# in permutation approach, shuffling values and generating distributions for
+# comparison
+# with small samples, can lead to false positives
+# saddlepoint estimation offers alternative solution; better for smalle samples,
+# more conservative, so less likely to generate false positives
+
 lisa_s <- as.data.frame(
   summary(localmoran.sad(lm(Count_ ~ 1, shp), 
                          nb=nb, style="C"))) # this works; 
@@ -395,19 +486,23 @@ dev.off()
 
 ##########################################
 #
+# Alternatives to local Moran:
 # Local G (Getis-Ord statistic) and Local Geary or Geary's C
 # 
 ##########################################
 
+# Reminder:
 # localG (getis-ord); returns Z-value that identifies similarity clusters 
 # high G (positive) = high-value similarity cluster
 # low G (negative) = low-value similarity cluster
 # note: does not capture dissimilarity clusters or spatial "outliers"
 # note2: two types: G and G*; G excludes focal unit in calculating 
 # neighborhood average; G* includes focal unit
+
 localg <- localG(shp$Count_, listw=wq1b)
 head(localg)
-# localGS() for G*
+
+# note: use localGS() for G*
 
 # using rgeoda
 #x <- mlf:: get_var(shp.sf$Count_)   # get squared variance
@@ -415,13 +510,13 @@ tempW <- rgeoda::queen_weights(shp.sf)
 alpha=0.05
 localg_2 <- rgeoda::local_g(tempW, 
                                 data.frame(shp.sf$Count_), 
-                                permutations = 5000)
+                                permutations = 4999)
 localg_2
 
 # if want local G*
 localgstar <- rgeoda::local_gstar(tempW, 
                             data.frame(shp.sf$Count_), 
-                            permutations = 5000)
+                            permutations = 4999)
 
 
 
@@ -469,7 +564,7 @@ dev.off()
 # if want local G*
 localgstar <- rgeoda::local_gstar(tempW, 
                                   data.frame(shp.sf$Count_), 
-                                  permutations = 5000)
+                                  permutations = 4999)
 
 
 
@@ -515,15 +610,18 @@ dev.off()
 
 ###############################
 # localC (Geary's C); 
+# Reminder:
 # can capture similarity and dissimilarity
-# based on squared differences, so large values (larged, squared differences)
-# capture dissimilarity
+# based on squared differences, so large values 
+# (large, squared differences), capture dissimilarity
 # mean=1 if spatially random; values < 1 are similar-values clusters
-# small values = similarity clusters (low and high, based on matching observations 
-# on a moran scatter plot)
-# however, squared differences may also match observations close to mean, so
+# small values = similarity clusters (low and high, 
+#     based on matching observations on a moran scatter plot) 
+# large values (>1) = dissimilarity clusters
+# however, squared differences may also 
+# match observations close to mean (around 1), so
 # these are "other positive" associations
-# large values = dissimilarity clusters
+
 localc <- localC(shp$Count_, listw=wq1b)
 head(localc)
 
@@ -536,7 +634,7 @@ tempW <- rgeoda::queen_weights(shp.sf)
 alpha=0.05
 localc_2 <- rgeoda::local_geary(tempW, 
                                 data.frame(shp.sf$Count_), 
-                                permutations = 5000)
+                                permutations = 4999)
 localc_2
 
 clusters <- rgeoda::lisa_clusters(localc_2, cutoff = alpha)
@@ -585,7 +683,7 @@ dev.off()
 ####################################
 # save working data
 
-save.image("./data/working/working20230615.RData")
+save.image("./data/working/working20230626_exploratory.RData")
 
 
 #end

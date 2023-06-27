@@ -3,15 +3,16 @@
 # Ingram, Matt 
 # Reproduction of Brass et al. (2020) in Political Geography
 # created: 2023-04-23
-# last updated: 2023-06-20
-# steps here: explanatory analysis; spatial models (SLM, SEM, SLX, SAC, SDM, 
+# last updated: 2023-06-26
+# steps here: explanatory analysis; 
+#             spatial models (SLM, SEM, SLX, SAC, SDM, 
 #               and GWR)
 #
 ################################################################################
 
 ##########################################################
 # if returning to project, load last working data file:
-load("./data/working/working20230615.RData")
+load("./data/working/working20230626_explanatory.RData")
 
 ###############################################################
 # EXPLANATORY ANALYSIS
@@ -20,13 +21,18 @@ load("./data/working/working20230615.RData")
 #######################################
 # BASELINE OLS MODEL (not reported in article)
 
-# reverse turnover to make more intuitive
+# reminder that reversed % turnout (p_turn) to get % nonvoters
 shp$turninv<- (1-shp$p_turn)
+
+# note: in original model in Table 2, % nonvoters is not in model 1, 
+# does not appear separately in model 2, and is not in model 3
+# however, it is in replication materials shared by authors
+# we include it here
 
 # base ols
 ols <- lm(Count_~ pov_p_2008 + gini_2008
                    + ferat_2008 + p_share
-                   + p_shvol + turninv
+                   + p_shvol + turninv       
                    + p_tuvol + p_ethfr
                    + Count_3 + Density_RD
                    + Pop_Densit + Count_4
@@ -41,6 +47,7 @@ bptest(ols)
 plot(ols$fitted.values, ols$residuals)
 # Lieberman-style graph of yhat vs y
 plot(ols$fitted.values, ols$model$Count_)
+abline(ols$fitted.values, ols$model$Count_)
 
 
 
@@ -48,7 +55,7 @@ plot(ols$fitted.values, ols$model$Count_)
 # BASELINE OLS MODEL WITH CLUSTERED SEs (Model 1 in article)
 
 #Model 1
-# could also use estimatr::lm_robust() (with option ... clusters = REGION)
+# using miceadds::lm.cluster(..., cluster = "REGION")
 
 ols1a <- lm.cluster(Count_~ pov_p_2008 + gini_2008
                    + ferat_2008 + p_share
@@ -59,6 +66,8 @@ ols1a <- lm.cluster(Count_~ pov_p_2008 + gini_2008
                    + literacy + grid_perCa,
                    data=shp@data, cluster = "REGION")
 
+# can also use estimatr::lm_robust() (with option ... clusters = REGION)
+
 ols1b <- lm_robust(Count_~ pov_p_2008 + gini_2008
                    + ferat_2008 + p_share
                    + p_shvol + turninv
@@ -66,18 +75,25 @@ ols1b <- lm_robust(Count_~ pov_p_2008 + gini_2008
                    + Count_3 + Density_RD
                    + Pop_Densit + Count_4
                    + literacy + grid_perCa,
-                   data=shp@data, clusters = REGION)
+                   data=shp@data,   # need to specify data object with lm_robust
+                   clusters = REGION,
+                   se_type = "CR2"   # options are CR0, CR2 (default), or stata
+                   )
 
-summary(ols1)   # stargazer does not recognize object created by lm.cluster
+summary(ols1a)   
+summary(ols1b)
 
-dwplot(list(ols, ols1a$lm_res, 
+
+# dot plot of coefficients
+dwplot(list(ols1a$lm_res, 
             ols1b), ci=.95)
 
 #######################################
 # BASELINE OLS WITH CLUSTERED SEs and INTERACTION (Model 2 in article)
 
 #Model 2
-ols2 <- lm.cluster(Count_~ pov_p_2008 + gini_2008
+# with miceadds::lm.cluster()
+ols2a <- lm.cluster(Count_~ pov_p_2008 + gini_2008
                    + ferat_2008 + p_share:turninv
                    + p_share + turninv
                    + p_shvol 
@@ -85,10 +101,28 @@ ols2 <- lm.cluster(Count_~ pov_p_2008 + gini_2008
                    + Count_3 + Density_RD
                    + Pop_Densit + Count_4
                    + literacy + grid_perCa,
-                   data=shp, cluster = "REGION"
+                   data=shp, 
+                   cluster = "REGION"
            )
 
-summary(ols2)
+summary(ols2a)
+
+# with estimatr::lm_robust()
+ols2b <- lm_robust(Count_~ pov_p_2008 + gini_2008
+                    + ferat_2008 + p_share:turninv
+                    + p_share + turninv
+                    + p_shvol 
+                    + p_tuvol + p_ethfr
+                    + Count_3 + Density_RD
+                    + Pop_Densit + Count_4
+                    + literacy + grid_perCa,
+                    data=shp@data,    # need to specify data with lm_robust
+                    clusters = REGION  # with default se_type = "CR2"
+                )
+
+summary(ols2b)
+
+# both of these models generate exactly same results as in article
 
 
 
@@ -96,17 +130,18 @@ summary(ols2)
 # SPATIAL MODELING
 #######################################
 
-# Notes:
 # 3 main approaches:
 ### (1) run diagnostics, then select model
 ### (2) run most complex model, then evaluate and select model
-### (3) build model based only on theory
+### (3) build model based on theory
 
 # in practice: 
-# if have good theory: let theory guide model specification, check with diagnostics,
+# if have good theory: let theory guide model specification, 
+# check with diagnostics,
 # and, in any case, run more than one model to 
-# check stability/robustness of results
-# if don't have good theory or working in new area: could follow options 1 or 2 in more
+# check stability/robustness of results;
+# if don't have good theory or working in new area,
+# could follow options 1 or 2 in more
 # exploratory approach
 
 # here, assume have well-developed theory, and focus on diagnostics (option 1 above)
@@ -200,8 +235,9 @@ slx <- lmSLX(Count_~ pov_p_2008 + gini_2008
                 + Count_3 + Density_RD
                 + Pop_Densit + Count_4
                 + literacy + grid_perCa,
-                data=shp, listw=wq1,
-                Durbin = TRUE)
+             data=shp, 
+             listw=wq1,
+             Durbin = TRUE)
 summary(slx)
 
 # aside from LM tests, could now do post-estimation comparison
@@ -211,53 +247,62 @@ moran.test(sac$residuals, listw=wq1)
 moran.test(sdm$residuals, listw=wq1)
 moran.test(slx$residuals, listw=wq1)
 
+AIC(ols)  # base ols
+AIC(ols1a$lm_res) # ols with clustered SEs (model 1)
+AIC(ols2a$lm_res) # ols with clustered SEs and interaction (model 2)
 AIC(slm)
 AIC(sem)
 AIC(sac)
 AIC(sdm)
 AIC(slx)
 
-# overall, SLM looks reasonable
+# overall, SLM has lowest AIC, so looks reasonable
 
 ###############################################
 # INTERPRETATION
 
-# for SLM, SAC, SDM, and SLX, need to estimate impacts
-# for SEM, can interpret as OLS coefficients
+# for SLM, SAC, SDM, and SLX, need to estimate impacts because of spatial multiplier
+# derived from Wy process
+# B = ()
+# for SEM, can interpret betas as OLS coefficients
 
 # note: original article found turnout volatility, female ratio, and road density
 # significant
 
 impacts.slm<- impacts(slm, 
-                      listw=shp.w,
+                      listw=wq1,
                       R=1000,zstats=TRUE
                       #,useHESS = T  # Hessian matrix not available
 )
 summary(impacts.slm, zstats=TRUE)
+# here, we find same general results (female ratio, turnout volatility, and road
+# density are sig., )
+# values are not the same, but relative magnitudes are similar
 
 summary(sem)
 
 impacts.sac<- impacts(sac, 
-                      listw=shp.w,
+                      listw=wq1,
                       R=1000,zstats=TRUE
                       #,useHESS = T  # Hessian matrix not available
 )
 summary(impacts.sac, zstats=TRUE)
 
 impacts.sdm<- impacts(sdm, 
-                      listw=shp.w,
+                      listw=wq1,
                       R=1000,zstats=TRUE
                       #,useHESS = T  # Hessian matrix not available
 )
 summary(impacts.sdm, zstats=TRUE)
 
 impacts.slx<- impacts(slx, 
-                      listw=shp.w,
+                      listw=wq1,
                       R=1000,zstats=TRUE
                       #,useHESS = T  # Hessian matrix not available
 )
 summary(impacts.slx, zstats=TRUE)
 
+# SUMMING UP:
 # slm consistent with article
 # other models show stability of these core results, with some variation
 # SAC: pop density also sig
@@ -265,7 +310,7 @@ summary(impacts.slx, zstats=TRUE)
 # and literacy now significant at either .05 (SDM) or .10 (SLX) level
 
 ###############################################
-# GWR
+# GWR (Geographically Weighted Regression)
 ###############################################
 
 # GWR of model 3 above
@@ -329,6 +374,9 @@ toc()
 mc2
 # again shows fem ratio and grid_perca significant
 
+# note that original authors focused on road density and turnout volatility
+# because these were the significant predictors in SLM (article, p9; appendix, p11)
+
 ###############################################
 # run gwr models with two different bandwidths
 tic("gwr1")
@@ -366,6 +414,23 @@ toc()
 # less than 1 sec
 
 write.csv(gwr2$SDF, "./tables/gwr2.csv") 
+
+# GWR results
+# can view as table
+gwr1
+gwr2
+
+# can also compare fit to other spatial models
+gwr1$GW.diagnostic$gwR2.adj
+gwr2$GW.diagnostic$gwR2.adj
+
+gwr1$GW.diagnostic$AIC
+gwr2$GW.diagnostic$AIC
+
+
+
+# better to graph/visualize results
+# see below
 
 ###############################################
 # Generate local estimates at 95% confidence
@@ -446,13 +511,18 @@ summary(col1$VIF)
 
 #########################################################
 # save data
-save.image("./data/working/working20230616.RData")
+save.image("./data/working/working20230626_models.RData")
 #########################################################
 
 
 ########################################################
 #
 # MAPS OF GWR COEFFICIENTS
+#
+# authors focused on tunout volatility and road density because those were sig in SLM
+# here, we report all covariates related to core hypotheses (vote share, vote share volatility,
+# turnout volatility, elec. grid per capita), plus fem ratio and road density because they 
+# were either significant in SLM or montecarlo test showed non-stationarity
 #
 ########################################################
 
@@ -665,6 +735,6 @@ dev.off()
 ####################################
 # save working data
 
-save.image("./data/working/working20230620.RData")
+save.image("./data/working/working20230626_models.RData")
 
 #end

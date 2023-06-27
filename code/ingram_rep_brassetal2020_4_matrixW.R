@@ -3,24 +3,38 @@
 # Ingram, Matt 
 # Reproduction of Brass et al. (2020) in Political Geography
 # created: 2023-04-23
-# last updated: 2023-06-05
+# last updated: 2023-06-26
 # steps here: generate connectivity matrix (W) and graph
 #
 ################################################################################
 
 ##########################################################
 # if returning to project, load last working data file:
-load("./data/working/working20230605.RData")
+load("./data/working/working20230626_processing.RData")
 
 
 ################################################
 # Generate measures of connectivity
 ################################################
 
-##### generate neighbor list objects
+# Two main approaches based on: (1) contiguity and (2) distance
+
+# note: this is a KEY STEP
+# caution: if going to be estimating direct, indirect, and total effects, then 
+# note that row-standardizing W restricts estimates of average total effects
+# this may not be a reasonable approach (see Whitten, Williams, and Wimpy 2021, p149)
+# here, authors row-standardized so we also row-standardize;
+# we also generate other Ws for illustration purposes, and for option to check
+# robustness later across different Ws
+
+# a lot of theory can go into constructing W
+# will return to this later
 
 #####################################
 # contiguity-based 
+#####################################
+
+# generate neighbor list objects
 nb.q1 <- poly2nb(shp)   # default is queen=TRUE
 nb.r1 <- poly2nb(shp, queen=FALSE)   # default is queen=TRUE
 # inspect and note structure
@@ -30,7 +44,7 @@ nb.r1
 # can confirm with diffnb
 diffnb(nb.q1, nb.r1)
 # generates nb object with unmatched connections
-# here, 0
+# here, 0, so all connections matched
 
 str(nb.q1)
 head(nb.q1)
@@ -39,6 +53,7 @@ head(nb.q1)
 
 #################################
 # distance-based nbs
+#################################
 
 # needs coordinates object
 coords <- st_coordinates(     # st_coordinates() generates matrix with 2 columns
@@ -64,7 +79,7 @@ k5 <- knn2nb(knearneigh(coords, k=5))
 # note this is a neighbor list (nb) object, just like nb.q1
 
 # distance-based connectivity
-all.linked <- max(unlist(nbdists(k5, coords)))
+all.linked <- max(unlist(nbdists(k5, coords))) # max distance between any 2 units
 dist.nb.0.all <- dnearneigh(coords, 0, all.linked, row.names=row.names(shp.sf))
 
 
@@ -74,7 +89,7 @@ dist.nb.0.all <- dnearneigh(coords, 0, all.linked, row.names=row.names(shp.sf))
 # using queen-1 W
 plot(st_geometry(shp.sf), border="grey", reset=FALSE, 
      main="contiguity-based nb, queen-1")
-plot(wq1b, coords=coords, col="red", add=TRUE)
+plot(nb.q1, coords=coords, col="red", add=TRUE)
 
 # using k1 W
 plot(st_geometry(shp.sf), border="grey", reset=FALSE, 
@@ -94,18 +109,14 @@ plot(dist.nb.0.all, coords=coords, col="red", add=TRUE)
 
 ########################################################
 #### Convert neighbor list to spatial weights matrix (W), listw objects
-# note: this is a KEY STEP
-# caution: if going to be estimating direct, indirect, and total effects, then 
-# note that row-standardizing W restricts estimates of average total effects
-# this may not be a reasonable approach (see Whitten, Williams, and Wimpy 2021, p149)
-# here, authors row-standardized so we also row-standardize
-# we also generate other Ws just to illustrate and for option to check
-# robustness later across different Ws
+
+# many functions in R require listw objects
 
 # queen-1
 wq1 <- nb2listw(nb.q1, style="W", zero.policy=T)  # row-standardized
 wq1b <- nb2listw(nb.q1, style="B", zero.policy=T)  # basic binary coding
 # rook-1
+wr1 <- nb2listw(nb.r1, style="W", zero.policy=T)  # row-standardized
 wr1b <- nb2listw(nb.r1, style="B", zero.policy=T)  # basic binary coding
 
 # check structure
@@ -122,6 +133,8 @@ wdist <- nb2listw(dist.nb.0.all, style="B", zero.policy=T)  # basic binary codin
 
 #################################
 # nicer map of connectivity
+# note: we'll return to some of these graph depictions of W later in discussion
+# of connections between spatial and network analysis
 
 # using queen-1
 
@@ -225,6 +238,6 @@ rm(g1, g2)
 ####################################
 # save working data
 
-save.image("./data/working/working20230606.RData")
+save.image("./data/working/working20230626_W.RData")
 
 # end
