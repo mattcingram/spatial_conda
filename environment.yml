@@ -24,3 +24,7 @@ dependencies:
   - r-dplyr
   - r-miceadds
   - r-sandwich
+  - r-lmtest
+  - r-olsrr
+  - r-estimatr
+  - r-igraph
