@@ -18,6 +18,7 @@ dependencies:
   - r-xtable
   - r-stargazer
   - r-ggplot2
+  - r-gridExtra
   - r-broom
   - r-tictoc
   - r-plyr
@@ -27,4 +28,5 @@ dependencies:
   - r-lmtest
   - r-olsrr
   - r-estimatr
-  - r-igraph
+  - r-GWmodel
+  - r-png
